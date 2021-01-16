@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"context"
+
 	sa "github.com/lterrac/system-autoscaler/pkg/apis/systemautoscaler/v1beta1"
 	"github.com/lterrac/system-autoscaler/pkg/podscale-controller/pkg/types"
 	. "github.com/onsi/ginkgo"
@@ -75,6 +76,14 @@ var _ = Describe("Resource Updater controller", func() {
 				requestMem := pod.Spec.Containers[0].Resources.Requests.Memory().ScaledValue(resource.Mega)
 				limitCpu := pod.Spec.Containers[0].Resources.Limits.Cpu().ScaledValue(resource.Milli)
 				limitMem := pod.Spec.Containers[0].Resources.Limits.Memory().ScaledValue(resource.Mega)
+
+				klog.Info("aaaa")
+				klog.Info(requestCpu == limitCpu)
+				klog.Info(requestMem == limitMem)
+				klog.Info(requestCpu == updatedPodScale.Status.ActualResources.Cpu().ScaledValue(resource.Milli))
+				klog.Info(requestMem == updatedPodScale.Status.ActualResources.Memory().ScaledValue(resource.Mega))
+				klog.Info(requestMem)
+				klog.Info(updatedPodScale.Status.ActualResources.Memory().ScaledValue(resource.Mega))
 
 				return requestCpu == limitCpu &&
 					requestMem == limitMem &&

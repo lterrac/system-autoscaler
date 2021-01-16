@@ -13,9 +13,10 @@ import (
 	"github.com/lterrac/system-autoscaler/pkg/apis/systemautoscaler/v1beta1"
 	podscalesclientset "github.com/lterrac/system-autoscaler/pkg/generated/clientset/versioned"
 	samplescheme "github.com/lterrac/system-autoscaler/pkg/generated/clientset/versioned/scheme"
-	"github.com/lterrac/system-autoscaler/pkg/podscale-controller/pkg/types"
+	nodescale "github.com/lterrac/system-autoscaler/pkg/podscale-controller/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -52,14 +53,14 @@ type Controller struct {
 	log *logger.Logger
 
 	// in is the input channel.
-	in chan types.NodeScales
+	in chan nodescale.NodeScales
 }
 
 // NewController returns a new sample controller
 func NewController(kubernetesClientset *kubernetes.Clientset,
 	podScalesClientset podscalesclientset.Interface,
 	informers informers.Informers,
-	in chan types.NodeScales) *Controller {
+	in chan nodescale.NodeScales) *Controller {
 
 	// Create event broadcaster
 	// Add sample-controller types to the default Kubernetes Scheme so Events can be
@@ -163,33 +164,41 @@ func (c *Controller) runNodeScaleWorker() {
 // it runs a request in dry-run and it checks for any potential error
 func (c *Controller) AtomicResourceUpdate(pod *corev1.Pod, podScale *v1beta1.PodScale) (*corev1.Pod, *v1beta1.PodScale, error) {
 	var err error
-	_, _, err = c.updateResources(pod, podScale, true)
+
+	podPatch := NewContainerResourcePatch(pod)
+
+	podscalePatch := NewPodScaleResourcePatch(podScale)
+
+	klog.Info("patches")
+	klog.Info(string(podPatch))
+	klog.Info(string(podscalePatch))
+
+	_, _, err = c.updateResources(pod, podPatch, podScale, podscalePatch, true)
 
 	if err != nil {
 		klog.Error("Error while performing dry-run resource update: ", err)
 		return nil, nil, err
 	}
 
-	return c.updateResources(pod, podScale, false)
+	return c.updateResources(pod, podPatch, podScale, podscalePatch, false)
 }
 
 // updateResources performs Pod and Podscale resource update in dry-run mode or not whether the corresponding flag is passed
-func (c *Controller) updateResources(pod *corev1.Pod, podScale *v1beta1.PodScale, dryRun bool) (newPod *corev1.Pod, newPodScale *v1beta1.PodScale, err error) {
-
-	opts := &metav1.UpdateOptions{}
+func (c *Controller) updateResources(pod *corev1.Pod, podPatch []byte, podScale *v1beta1.PodScale, podscalePatch []byte, dryRun bool) (newPod *corev1.Pod, newPodScale *v1beta1.PodScale, err error) {
+	opts := &metav1.PatchOptions{}
 
 	if dryRun {
 		opts.DryRun = []string{metav1.DryRunAll}
 	}
 
-	newPod, err = c.kubernetesClientset.CoreV1().Pods(podScale.Spec.PodRef.Namespace).Update(context.TODO(), pod, *opts)
+	newPod, err = c.kubernetesClientset.CoreV1().Pods(podScale.Spec.PodRef.Namespace).Patch(context.TODO(), pod.Name, types.JSONPatchType, podPatch, *opts)
 
 	if err != nil {
 		klog.Error("Error updating the pod: ", err)
 		return nil, nil, err
 	}
 
-	newPodScale, err = c.podScalesClientset.SystemautoscalerV1beta1().PodScales(podScale.Namespace).Update(context.TODO(), podScale, *opts)
+	newPodScale, err = c.podScalesClientset.SystemautoscalerV1beta1().PodScales(podScale.Namespace).Patch(context.TODO(), podScale.Name, types.JSONPatchType, podscalePatch, *opts)
 
 	if err != nil {
 		klog.Error("Error updating the pod scale: ", err)
